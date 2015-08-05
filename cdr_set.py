@@ -41,6 +41,15 @@ class CDRSet(object):
         for values in self.kabat_data.itervalues():
             assert len(values) == 14
 
+        # invalid_letters = list(set(list(string.uppercase[:26])).difference(list(AMINO_ACIDS)))
+        # invalid_found = []
+        # for record in self.fasta_data:
+        #     for letter in invalid_letters:
+        #         if str(record.seq).count(letter) > 0:
+        #             invalid_found.append(letter)
+        # if invalid_found:
+        #     raise Exception('Invalid symbols found in data: ' + ', '.join(np.unique(invalid_found)))
+
     def all_fr(self):
         """ Collect all FR sequences.
         :return: list
@@ -101,7 +110,6 @@ class CDRSet(object):
                 ]
                 if not any(diff):
                     diff = []
-                # diff_data[str(length)].append(diff)
                 diff_data[length].append(diff)
         return diff_data
 
@@ -148,7 +156,7 @@ class CDRSet(object):
     def read_fasta(file_name):
         """ Read .fasta file
         :param file_name: string
-        :return: list of
+        :return: list
         """
         handle = open(file_name, 'rU')
         return list(SeqIO.parse(handle, 'fasta'))

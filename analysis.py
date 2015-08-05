@@ -2,8 +2,10 @@ __author__ = 'Suleymanov'
 
 import os
 import operator
-from input_data import hchains, hchains_names, human_set, llama_set, results_dir
+import numpy as np
 from itertools import izip
+from Levenshtein import distance
+from input_data import hchains, hchains_names, human_set, llama_set, results_dir
 from utils import hamming
 
 
@@ -11,31 +13,29 @@ class CDRAnalyzer(object):
     def __init__(self, hchain):
         self.hchain = hchain
 
-    def find_closest(self, cdr_set, k):
+    def find_closest(self, cdr_set, distance_func=hamming):
         """ Find k closest CDRs for all 3 regions in cdr_set
         :param cdr_set:
-        :param k: number of considered closest distances
+        :param distance_func: strings similarity function
         :return: dict
         """
-        assert k > 0
         result = {}
         for i, cdr in enumerate(self.hchain.cdr):
             k_lengthers = cdr_set.all_k_lengthers(len(cdr), i + 1)
-            data = {k: hamming(k, cdr) for k in k_lengthers}
-            sorted_data = sorted(data.items(), key=operator.itemgetter(1))
-            # result[cdr] = [sorted_data[i] for i in xrange(k)]
-            # consider rewriting/optimizing stuff below
-            values = [sorted_data[0]]
-            count = 1
-            for j, item in enumerate(sorted_data[1:]):
-                prev = sorted_data[j - 1]
-                if prev[1] < item[1]:
-                    count += 1
-                if count > k:
-                    break
-                values.append(item)
+            data = {}
+            for k in k_lengthers:
+                dist = distance_func(k, cdr)
+                if dist in data:
+                    data[dist].append(k)
+                else:
+                    data[dist] = [k]
             item_key = 'CDR' + str(i + 1)
-            result[item_key] = {'region': cdr, 'values': values}
+            min_dist = min(data.keys())
+            result[item_key] = {
+                'region': cdr,
+                'dist': min_dist,
+                'count': len(data[min_dist]),
+                'values': np.unique(data[min_dist])}
         return result
 
 
@@ -52,8 +52,7 @@ def record_closest(data, f_name, header=None):
         row_vls = []
         for key in data:
             if i < len(data[key]['values']):
-                val = data[key]['values'][i]
-                row_vls.append(val[0] + ' (' + str(val[1]) + ')')
+                row_vls.append(data[key]['values'][i])
             else:
                 row_vls.append('---')
         data_lines.append('\t'.join(row_vls))
@@ -61,8 +60,10 @@ def record_closest(data, f_name, header=None):
     with open(f_name, 'a') as f:
         if header:
             f.write(header + '\n')
-        f.write('\t'.join([key for key in data]) + '\n')
-        f.write('\t'.join([data[key]['region'] for key in data]) + '\n')
+        f.write('\t' + '\t'.join([key for key in data]) + '\n')
+        f.write('Region\t' + '\t'.join([data[key]['region'] for key in data]) + '\n')
+        f.write('Distance\t' + '\t'.join([str(data[key]['dist']) for key in data]) + '\n')
+        f.write('Count\t' + '\t'.join([str(data[key]['count']) for key in data]) + '\n')
         for line in data_lines:
             f.write(line + '\n')
         f.write('\n')
@@ -91,19 +92,26 @@ def record_diff(data, f_name, header=None):
             f.write('\n')
 
 
-def entry_point():
-    # analyzers = [CDRAnalyzer(hchain) for hchain in hchains]
-    # num_closest = 1
-    # closest_human = [analyzer.find_closest(human_set, num_closest) for analyzer in analyzers]
-    # closest_llama = [analyzer.find_closest(llama_set, num_closest) for analyzer in analyzers]
-    # f_name_closest = [os.sep.join([results_dir, name + ' (closest).txt'])
-    #                   for name in hchains_names]
-    # for f_name, human_res, llama_res in izip(f_name_closest, closest_human, closest_llama):
-    #     if os.path.exists(f_name):
-    #         os.remove(f_name)
-    #     record_closest(human_res, f_name, 'human data')
-    #     record_closest(llama_res, f_name, 'llama data')
+def closest():
+    """ Find and record closest CDRs to given ones.
+    :return: nothing
+    """
+    analyzers = [CDRAnalyzer(hchain) for hchain in hchains]
+    closest_human = [analyzer.find_closest(human_set, distance) for analyzer in analyzers]
+    closest_llama = [analyzer.find_closest(llama_set, distance) for analyzer in analyzers]
+    f_name_closest = [os.sep.join([results_dir, name + ' (closest, Levenshtein).txt'])
+                      for name in hchains_names]
+    for f_name, human_res, llama_res in izip(f_name_closest, closest_human, closest_llama):
+        if os.path.exists(f_name):
+            os.remove(f_name)
+        record_closest(human_res, f_name, 'human data')
+        record_closest(llama_res, f_name, 'llama data')
 
+
+def diff():
+    """ Find and record symbols present in human, but not llama and vice versa.
+    :return: nothing
+    """
     human_diff = human_set.diff(llama_set)
     f_name = os.sep.join([results_dir, 'human-diff.txt'])
     if os.path.exists(f_name):
@@ -117,5 +125,30 @@ def entry_point():
     record_diff(llama_diff, f_name)
 
 
+def record_lengthers():
+    """ Record CDR-lengthers of interest (lengths 5, 17, 20).
+    :return: nothing
+    """
+    def record_lengthers(data, f_name):
+        with open(f_name, 'w') as f:
+            for record in data:
+                f.write(record + '\n')
+
+    def create_file(short_name):
+        name = os.sep.join([results_dir, short_name])
+        if os.path.exists(name):
+            os.remove(name)
+        return name
+
+    lengths = [5, 17, 20]
+    for i, item in enumerate(lengths):
+        f_name = create_file('human %s-lenghters (CDR%s).txt' % (item, i + 1))
+        subset = human_set.all_k_lengthers(item, i + 1)
+        record_lengthers(subset, f_name)
+        # record_lengthers(human_set.all_k_lengthers(item, i + 1), f_name)
+
+
 if __name__ == '__main__':
-    entry_point()
+    closest()
+    # record_lengthers()
+    # diff()
