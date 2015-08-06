@@ -3,6 +3,8 @@
 *.fasta
 *.txt
 *.csv
+*.xls
+*.xlsx
 *.kabat
 *.marking
 input_data.py

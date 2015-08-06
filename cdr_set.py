@@ -6,11 +6,14 @@ __author__ = 'Suleymanov'
 # FASTA structure:
 # Sequence id <-> sequence string
 
+import string
 import numpy as np
 from Bio import SeqIO
 
 AMINO_ACIDS = ['D', 'T', 'S', 'E', 'P', 'G', 'A', 'C', 'V', 'M',
-               'I', 'L', 'Y', 'F', 'H', 'K', 'R', 'W', 'Q', 'N']
+               'I', 'L', 'Y', 'F', 'H', 'K', 'R', 'W', 'Q', 'N', 'X']
+# X - special symbol for missing or unimportant data
+# (https://en.wikipedia.org/wiki/Proteinogenic_amino_acid)
 
 
 class CDRSet(object):
@@ -41,14 +44,14 @@ class CDRSet(object):
         for values in self.kabat_data.itervalues():
             assert len(values) == 14
 
-        # invalid_letters = list(set(list(string.uppercase[:26])).difference(list(AMINO_ACIDS)))
-        # invalid_found = []
-        # for record in self.fasta_data:
-        #     for letter in invalid_letters:
-        #         if str(record.seq).count(letter) > 0:
-        #             invalid_found.append(letter)
-        # if invalid_found:
-        #     raise Exception('Invalid symbols found in data: ' + ', '.join(np.unique(invalid_found)))
+        invalid_letters = list(set(list(string.uppercase[:26])).difference(list(AMINO_ACIDS)))
+        invalid_found = []
+        for record in self.fasta_data:
+            for letter in invalid_letters:
+                if str(record.seq).count(letter) > 0:
+                    invalid_found.append(letter)
+        if invalid_found:
+            raise Exception('Invalid symbols found in data: ' + ', '.join(np.unique(invalid_found)))
 
     def all_fr(self):
         """ Collect all FR sequences.
@@ -73,17 +76,17 @@ class CDRSet(object):
             cdr_data.append([str(item.seq)[sl] for sl in cdr_slices])
         return cdr_data
 
-    def all_k_lengthers(self, k, pos=None):
-        """ Return all CDR sequences of length k at pos (1, 2, 3 - if specified).
-        All k-lengthers if no pos
+    def all_k_lengthers(self, k, region_ind=None):
+        """ Return all CDR sequences of length k from region_ind (1, 2, 3 - if specified).
+        All k-lengthers if no region_ind
         :param k: int
-        :param pos: int
+        :param region_ind: int
         :return: list
         """
         assert 0 <= k <= max(self.lengths)
-        if pos:
-            assert 1 <= pos <= 3
-            return [cdr[pos - 1] for cdr in self.cdr_all if len(cdr[pos - 1]) == k]
+        if region_ind:
+            assert 1 <= region_ind <= 3
+            return [cdr[region_ind - 1] for cdr in self.cdr_all if len(cdr[region_ind - 1]) == k]
         return [item for cdr in self.cdr_all for item in cdr if len(item) == k]
 
     def diff(self, other):
@@ -98,7 +101,6 @@ class CDRSet(object):
         for length in self.lengths:
             if length not in other.lengths or length == 0:
                     continue
-            # diff_data[str(length)] = []
             diff_data[length] = []
             for region_ind in xrange(1, 4):
                 lengthers = self.all_k_lengthers(length, region_ind)

@@ -1,12 +1,10 @@
 __author__ = 'Suleymanov'
 
 import os
-import operator
 import numpy as np
 from itertools import izip
-from Levenshtein import distance
 from input_data import hchains, hchains_names, human_set, llama_set, results_dir
-from utils import hamming
+from utils import distance, hamming, align, adj_dist
 
 
 class CDRAnalyzer(object):
@@ -37,6 +35,30 @@ class CDRAnalyzer(object):
                 'count': len(data[min_dist]),
                 'values': np.unique(data[min_dist])}
         return result
+
+    def region_stats(self, cdr_set, thresh, region_ind):
+        """ Calculate statistics for all examples from CDR[region_ind]
+        with adjusted distance passing threshold
+        :param thresh: float
+        :param region_ind: int
+        :return: list of string
+        """
+        assert 0 < thresh <= 1.0
+        assert 1 <= region_ind <= 3
+        cdr = self.hchain.cdr[region_ind - 1]
+        stats_data = [{}] * len(cdr)
+        for length in cdr_set.lengths:
+            lengthers = cdr_set.all_k_lengthers(length, region_ind)
+            for item in lengthers:
+                cdr_aligned, item_aligned, dist = align(cdr, item)
+                if dist >= thresh:
+                    for i, ch1, ch2 in izip(xrange(len(cdr_aligned)), cdr_aligned, item_aligned):
+                        if ch1 is not '*':
+                            if ch2 in stats_data[i].keys():
+                                stats_data[i][ch2] += 1
+                            else:
+                                stats_data[i][ch2] = 1
+        return stats_data
 
 
 def record_closest(data, f_name, header=None):
@@ -108,6 +130,12 @@ def closest():
         record_closest(llama_res, f_name, 'llama data')
 
 
+def stats(thresh, region_ind):
+    analyzers = [CDRAnalyzer(hchain) for hchain in hchains]
+    stats_human = [analyzer.region_stats(human_set, thresh, region_ind) for analyzer in analyzers]
+    stats_llama = [analyzer.region_stats(llama_set, thresh, region_ind) for analyzer in analyzers]
+
+
 def diff():
     """ Find and record symbols present in human, but not llama and vice versa.
     :return: nothing
@@ -149,6 +177,7 @@ def record_lengthers():
 
 
 if __name__ == '__main__':
-    closest()
+    stats(0.8, 3)
+    # closest()
     # record_lengthers()
     # diff()
