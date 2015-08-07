@@ -12,6 +12,8 @@ from Bio import SeqIO
 
 AMINO_ACIDS = ['D', 'T', 'S', 'E', 'P', 'G', 'A', 'C', 'V', 'M',
                'I', 'L', 'Y', 'F', 'H', 'K', 'R', 'W', 'Q', 'N', 'X']
+GAP = '-'
+
 # X - special symbol for missing or unimportant data
 # (https://en.wikipedia.org/wiki/Proteinogenic_amino_acid)
 

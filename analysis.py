@@ -3,8 +3,9 @@ __author__ = 'Suleymanov'
 import os
 import numpy as np
 from itertools import izip
+from Bio import pairwise2
 from input_data import hchains, hchains_names, human_set, llama_set, results_dir
-from utils import distance, hamming, align, adj_dist
+from utils import distance, hamming, GAP, AMINO_ACIDS
 
 
 class CDRAnalyzer(object):
@@ -41,23 +42,31 @@ class CDRAnalyzer(object):
         with adjusted distance passing threshold
         :param thresh: float
         :param region_ind: int
-        :return: list of string
+        :return: list; an element is statistics for corresponding position
         """
         assert 0 < thresh <= 1.0
         assert 1 <= region_ind <= 3
         cdr = self.hchain.cdr[region_ind - 1]
-        stats_data = [{}] * len(cdr)
-        for length in cdr_set.lengths:
+        stats_data = [{} for i in xrange(len(cdr))]
+        for length in cdr_set.lengths:  # try all lengths values in queried CDR region
             lengthers = cdr_set.all_k_lengthers(length, region_ind)
             for item in lengthers:
-                cdr_aligned, item_aligned, dist = align(cdr, item)
-                if dist >= thresh:
-                    for i, ch1, ch2 in izip(xrange(len(cdr_aligned)), cdr_aligned, item_aligned):
-                        if ch1 is not '*':
+                if len(item) == 0:
+                    continue
+                aligns = pairwise2.align.globalxx(cdr, item)[0]
+                cdr_aligned = aligns[0]
+                item_aligned = aligns[1]
+                assert len(cdr_aligned) == len(item_aligned) == aligns[4]
+                dist = 1.0 * distance(cdr, item) / aligns[4]
+                if dist <= thresh:
+                    i = 0
+                    for ch1, ch2 in izip(cdr_aligned, item_aligned):
+                        if ch1 is not GAP:
                             if ch2 in stats_data[i].keys():
                                 stats_data[i][ch2] += 1
                             else:
                                 stats_data[i][ch2] = 1
+                            i += 1
         return stats_data
 
 
@@ -114,6 +123,24 @@ def record_diff(data, f_name, header=None):
             f.write('\n')
 
 
+def record_stats(cdr, stats_data, f_name, header=None):
+    alphabet = sorted([item for sub in [AMINO_ACIDS, ['-']] for item in sub])
+    with open(f_name, 'a') as f:
+        if header:
+            f.write(header + '\n')
+        f.write('\t' + '\t'.join(list(cdr)) + '\n')
+        for letter in alphabet:
+            row = []
+            for stat_item in stats_data:
+                if letter in stat_item:
+                    row.append(stat_item[letter])
+                else:
+                    row.append(0)
+            if any([val != 0 for val in row]):
+                f.write(letter + '\t' + '\t'.join([str(val) for val in row]) + '\n')
+        f.write('\n')
+
+
 def closest():
     """ Find and record closest CDRs to given ones.
     :return: nothing
@@ -134,6 +161,18 @@ def stats(thresh, region_ind):
     analyzers = [CDRAnalyzer(hchain) for hchain in hchains]
     stats_human = [analyzer.region_stats(human_set, thresh, region_ind) for analyzer in analyzers]
     stats_llama = [analyzer.region_stats(llama_set, thresh, region_ind) for analyzer in analyzers]
+
+    f_name = os.sep.join([results_dir, 'human-stats.txt'])
+    if os.path.exists(f_name):
+        os.remove(f_name)
+    for stats_data, hchain in izip(stats_human, hchains):
+        record_stats(hchain.cdr[region_ind - 1], stats_data, f_name, hchain.name)
+
+    f_name = os.sep.join([results_dir, 'llama-stats.txt'])
+    if os.path.exists(f_name):
+        os.remove(f_name)
+    for stats_data, hchain in izip(stats_llama, hchains):
+        record_stats(hchain.cdr[region_ind - 1], stats_data, f_name, hchain.name)
 
 
 def diff():
@@ -177,7 +216,7 @@ def record_lengthers():
 
 
 if __name__ == '__main__':
-    stats(0.8, 3)
+    stats(0.4, 3)
     # closest()
     # record_lengthers()
     # diff()
