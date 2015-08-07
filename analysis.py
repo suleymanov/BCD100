@@ -5,7 +5,9 @@ import numpy as np
 from itertools import izip
 from Bio import pairwise2
 from input_data import hchains, hchains_names, human_set, llama_set, results_dir
-from utils import distance, hamming, GAP, AMINO_ACIDS
+from output_data import record_stats, record_diff, record_closest, record_lengthers
+from utils import distance, hamming, adj_distance
+from cdr_set import GAP
 
 
 class CDRAnalyzer(object):
@@ -13,7 +15,7 @@ class CDRAnalyzer(object):
         self.hchain = hchain
 
     def find_closest(self, cdr_set, distance_func=hamming):
-        """ Find k closest CDRs for all 3 regions in cdr_set
+        """ Find closest CDRs for all 3 regions in cdr_set
         :param cdr_set:
         :param distance_func: strings similarity function
         :return: dict
@@ -35,6 +37,33 @@ class CDRAnalyzer(object):
                 'dist': min_dist,
                 'count': len(data[min_dist]),
                 'values': np.unique(data[min_dist])}
+        return result
+
+    def find_closest_adj(self, cdr_set):
+        """ Find closest CDRs for all 3 regions in cdr_set
+        using adjusted distance function
+        :param cdr_set:
+        :return: dict
+        """
+        result = {}
+        for i, cdr in enumerate(self.hchain.cdr):
+            data = {}
+            for length in cdr_set.lengths:
+                lengthers = cdr_set.all_k_lengthers(length, i + 1)
+                for item in lengthers:
+                    dist = adj_distance(item, cdr)
+                    if dist in data:
+                        data[dist].append(item)
+                    else:
+                        data[dist] = [item]
+            item_key = 'CDR' + str(i + 1)
+            min_dist = min(data.keys())
+            result[item_key] = {
+                'region': cdr,
+                'dist': min_dist,
+                'count': len(data[min_dist]),
+                'values': np.unique(data[min_dist])
+            }
         return result
 
     def region_stats(self, cdr_set, thresh, region_ind):
@@ -70,84 +99,15 @@ class CDRAnalyzer(object):
         return stats_data
 
 
-def record_closest(data, f_name, header=None):
-    """ Print results of CDRAnalyzer.find_closest()
-    :param data: dict
-    :param f_name: string
-    :param header: string
-    :return: nothing
-    """
-    data_lines = []
-    num_lines = max([len(data[key]['values']) for key in data])
-    for i, line in enumerate(xrange(num_lines)):
-        row_vls = []
-        for key in data:
-            if i < len(data[key]['values']):
-                row_vls.append(data[key]['values'][i])
-            else:
-                row_vls.append('---')
-        data_lines.append('\t'.join(row_vls))
-
-    with open(f_name, 'a') as f:
-        if header:
-            f.write(header + '\n')
-        f.write('\t' + '\t'.join([key for key in data]) + '\n')
-        f.write('Region\t' + '\t'.join([data[key]['region'] for key in data]) + '\n')
-        f.write('Distance\t' + '\t'.join([str(data[key]['dist']) for key in data]) + '\n')
-        f.write('Count\t' + '\t'.join([str(data[key]['count']) for key in data]) + '\n')
-        for line in data_lines:
-            f.write(line + '\n')
-        f.write('\n')
-
-
-def record_diff(data, f_name, header=None):
-    """ Print unique amino acids dependent on position and CDR region of two CDR datasets.
-    :param data: dict
-    :param f_name: string
-    :param header: string
-    :return: nothing
-    """
-    with open(f_name, 'a') as f:
-        if header:
-            f.write(header + '\n')
-        for key in data:  # traverse length values
-            f.write(str(key) + '-len words\n')
-            for region_ind, region_data in enumerate(data[key]):  # traverse region data
-                if region_data:  # omit empty data
-                    f.write('CDR' + str(region_ind + 1) + '\n')
-                    for i, vls in enumerate(region_data):
-                        if vls:  # omit empty data
-                            str_vls = [str(val) for val in vls]
-                            f.write(str(i) + '\t' + ' '.join(str_vls) + '\n')
-                f.write('\n')
-            f.write('\n')
-
-
-def record_stats(cdr, stats_data, f_name, header=None):
-    alphabet = sorted([item for sub in [AMINO_ACIDS, ['-']] for item in sub])
-    with open(f_name, 'a') as f:
-        if header:
-            f.write(header + '\n')
-        f.write('\t' + '\t'.join(list(cdr)) + '\n')
-        for letter in alphabet:
-            row = []
-            for stat_item in stats_data:
-                if letter in stat_item:
-                    row.append(stat_item[letter])
-                else:
-                    row.append(0)
-            if any([val != 0 for val in row]):
-                f.write(letter + '\t' + '\t'.join([str(val) for val in row]) + '\n')
-        f.write('\n')
-
-
 def closest():
     """ Find and record closest CDRs to given ones.
     :return: nothing
     """
     analyzers = [CDRAnalyzer(hchain) for hchain in hchains]
-    closest_human = [analyzer.find_closest(human_set, distance) for analyzer in analyzers]
-    closest_llama = [analyzer.find_closest(llama_set, distance) for analyzer in analyzers]
+    # closest_human = [analyzer.find_closest(human_set, distance) for analyzer in analyzers]
+    # closest_llama = [analyzer.find_closest(llama_set, distance) for analyzer in analyzers]
+    closest_human = [analyzer.find_closest_adj(human_set) for analyzer in analyzers]
+    closest_llama = [analyzer.find_closest_adj(llama_set) for analyzer in analyzers]
     f_name_closest = [os.sep.join([results_dir, name + ' (closest, Levenshtein).txt'])
                       for name in hchains_names]
     for f_name, human_res, llama_res in izip(f_name_closest, closest_human, closest_llama):
@@ -162,13 +122,15 @@ def stats(thresh, region_ind):
     stats_human = [analyzer.region_stats(human_set, thresh, region_ind) for analyzer in analyzers]
     stats_llama = [analyzer.region_stats(llama_set, thresh, region_ind) for analyzer in analyzers]
 
-    f_name = os.sep.join([results_dir, 'human-stats.txt'])
+    f_name = 'human-stats (thresh ' + str(thresh) + ', CDR' + str(region_ind) + ').txt'
+    f_name = os.sep.join([results_dir, f_name])
     if os.path.exists(f_name):
         os.remove(f_name)
     for stats_data, hchain in izip(stats_human, hchains):
         record_stats(hchain.cdr[region_ind - 1], stats_data, f_name, hchain.name)
 
-    f_name = os.sep.join([results_dir, 'llama-stats.txt'])
+    f_name = 'llama-stats (thresh ' + str(thresh) + ', CDR' + str(region_ind) + ').txt'
+    f_name = os.sep.join([results_dir, f_name])
     if os.path.exists(f_name):
         os.remove(f_name)
     for stats_data, hchain in izip(stats_llama, hchains):
@@ -192,31 +154,8 @@ def diff():
     record_diff(llama_diff, f_name)
 
 
-def record_lengthers():
-    """ Record CDR-lengthers of interest (lengths 5, 17, 20).
-    :return: nothing
-    """
-    def record_lengthers(data, f_name):
-        with open(f_name, 'w') as f:
-            for record in data:
-                f.write(record + '\n')
-
-    def create_file(short_name):
-        name = os.sep.join([results_dir, short_name])
-        if os.path.exists(name):
-            os.remove(name)
-        return name
-
-    lengths = [5, 17, 20]
-    for i, item in enumerate(lengths):
-        f_name = create_file('human %s-lenghters (CDR%s).txt' % (item, i + 1))
-        subset = human_set.all_k_lengthers(item, i + 1)
-        record_lengthers(subset, f_name)
-        # record_lengthers(human_set.all_k_lengthers(item, i + 1), f_name)
-
-
 if __name__ == '__main__':
-    stats(0.4, 3)
-    # closest()
+    # stats(0.9, 3)
+    closest()
     # record_lengthers()
     # diff()
