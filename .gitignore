@@ -1,5 +1,7 @@
 .idea
 *.pyc
+*.ipynb
+*.ipynb_checkpoints
 *.fasta
 *.txt
 *.csv
