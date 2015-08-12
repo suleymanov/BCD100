@@ -1,14 +1,12 @@
 __author__ = 'Suleymanov'
 
+import os
 import numpy as np
 from itertools import izip
-from collections import namedtuple
 from Bio import pairwise2
-from input_data import hchains, human_set, llama_set
+from input_data import hchains, human_set, llama_set, results_dir
 from utils import distance, hamm, adj_distance
 from utils import DIST, VLS, COUNT, REGION, GAP
-
-ProcessResult = namedtuple('ProcessResult', 'closest stats')
 
 
 class CDRAnalyzer(object):
@@ -38,7 +36,7 @@ class CDRAnalyzer(object):
         """
         print 'Processing chain: ' + self.hchain.name
         print 'CDR set name: ' + cdr_set.name
-        closest = {}
+        closest = {'Hamming': {}, 'Levenshtein': {}, 'Adjusted': {}}
         regions = {}
         for i, cdr in enumerate(self.hchain.cdr):
             item_key = 'CDR' + str(i + 1)
@@ -51,7 +49,8 @@ class CDRAnalyzer(object):
             closest['Adjusted'][item_key] = self.find_closest(cdr_set, i + 1, adj_distance)
             print '\tCollecting statistics with threshold: %s' % thresh
             regions[item_key] = self.region_stats(cdr_set, i + 1, thresh)
-        self.result.add_result(cdr_set.name, ProcessResult(closest=closest, stats=regions))
+        # self.result.add_result(cdr_set.name, ProcessResult(closest=closest, stats=regions))
+        self.result.add_result(cdr_set.name, {'closest': closest, 'stats': regions})
 
     def find_closest(self, cdr_set, region_ind, dist_func):
         """ Find closest sequences for given CDR index (1-3)
@@ -77,7 +76,7 @@ class CDRAnalyzer(object):
             REGION: cdr,
             DIST: min_dist,
             COUNT: len(result[min_dist]),
-            VLS: np.unique(result[min_dist])
+            VLS: list(np.unique(result[min_dist]))
         }
 
     def region_stats(self, cdr_set, region_ind, thresh):
@@ -105,7 +104,11 @@ class CDRAnalyzer(object):
                 i = 0
                 for ch1, ch2 in izip(cdr_aligned, item_aligned):
                     if ch1 is not GAP:
-                        stats_data[i][ch2] += 1 if ch2 in stats_data[i].keys() else 1
+                        if ch2 in stats_data[i].keys():
+                            stats_data[i][ch2] += 1
+                        else:
+                            stats_data[i][ch2] = 1
+                        # stats_data[i][ch2] += 1 if ch2 in stats_data[i].keys() else 1
                         i += 1
         return stats_data
 
@@ -131,14 +134,14 @@ class Result(object):
 
 def entry_point(thresh):
     hchain_analyzers = [CDRAnalyzer(hchain) for hchain in hchains]
+    f_names = ['result1.txt', 'result2.txt']
     for analyzer in hchain_analyzers:
         analyzer.process(human_set, thresh)
         analyzer.process(llama_set, thresh)
-    return hchain_analyzers
+    for analyzer, f_name in izip(hchain_analyzers, f_names):
+        with open(os.sep.join([results_dir, f_name])) as f:
+            f.write(analyzer.hchain.name + '\n')
+            f.write(str(analyzer.result))
 
 if __name__ == '__main__':
-    analyzers = entry_point(0.5)
-    f_names = ['results1.txt', 'results2.txt']
-    for analyzer, f_name in izip(analyzers, f_names):
-        with open(f_name, 'w') as f:
-            f.write(str(analyzer.result))
+    entry_point(0.5)
